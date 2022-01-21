@@ -31,11 +31,12 @@ main =
 type alias Model = 
     { connection : String
     , lastMsg : String
+    , msg : String
     }
 
 initial_model : Model
 initial_model = 
-    Model "" ""
+    Model "" "" ""
 
 init : () -> (Model, Cmd Msg)
 init _ =
@@ -58,11 +59,21 @@ type Msg
 
 on_connect : Model -> (Model, Cmd Msg)
 on_connect model =
-    (model, write_conn model.connection "GET / HTTP/1.1\r\n\r\n")
+    (model, write_conn model.connection "GET / HTTP/1.1\r\nHost: www.bing.com\r\n\r\n")
 
 on_read : Model -> String -> (Model, Cmd Msg)
 on_read model fullText =
-    ({ model | lastMsg = fullText}, Cmd.none)
+    let isok = String.startsWith "ok;" fullText
+        iserror = String.startsWith "error;" fullText
+        len = String.length fullText
+    in if isok then
+         if len > 3 then
+            ({ model | lastMsg = (String.slice 3 len fullText)}, Cmd.none)
+         else
+             (model, Cmd.none)
+       else
+         ({ model | msg = fullText}, Cmd.none)
+
 
 update : Msg -> Model -> (Model, Cmd Msg)
 update msg model =
@@ -70,10 +81,21 @@ update msg model =
     ConnectRes result ->
       case result of
         Ok fullText ->
-          on_connect { model | connection = fullText }
+          on_connect { model | connection = fullText , msg = "connected"}
 
-        Err _ ->
-          (model, Cmd.none)
+        Err httperr ->
+          case httperr of
+              Http.BadStatus err ->
+                ({ model | msg = "connect error - badstatus"}, Cmd.none)
+              Http.BadBody err ->
+                ({ model | msg = "connect error - badbody " ++ err}, Cmd.none)
+              Http.NetworkError->
+                ({ model | msg = "connect error - networkerror "}, Cmd.none)
+              Http.BadUrl err ->
+                ({ model | msg = "connect error - badurl " ++ err}, Cmd.none)
+              _ ->
+                ({ model | msg = "connect error "}, Cmd.none)
+
 
     ReadRes result ->
       case result of
@@ -102,7 +124,7 @@ update msg model =
         ( model, connect "www.bing.com" 80)
 
     Disconnect ->
-        ( model, disconnect model.connection )
+        ( {model | connection = ""}, disconnect model.connection )
 
     _ ->
           (model, Cmd.none)
@@ -127,13 +149,16 @@ view model =
         "" ->
           div []
             [ button [ onClick Connect ] [ text "connect" ]
+            , div [] [ text model.msg ]
+            , div [] [ text model.lastMsg ]
             ]
         _ ->
           div []
             [ button [ onClick Disconnect ] [ text "disconnect" ]
             , div [] [ text model.connection ]
+            , div [] [ text model.msg ]
             , div [] [ text model.lastMsg ]
-            ]
+            ] 
 
 makeReq action params = 
      Url.Builder.crossOrigin "http://127.0.0.1:9010" [action] params
@@ -151,22 +176,25 @@ connect host dport =
 
 disconnect token = 
   Http.get
-      { url = "http://127.0.0.1:8081/disconnect?token=" ++ token
+      { url = "http://127.0.0.1:9010/disconnect?token=" ++ token
       , expect = Http.expectString DisconnectRes 
       }
 
 
 read_conn token = 
-   Http.get
-      { url = "http://127.0.0.1:8081/pool?token=" ++ token 
-      , expect = Http.expectString ReadRes 
-      }
+   if token /= "" then
+     Http.get
+        { url = "http://127.0.0.1:9010/poll?token=" ++ token 
+        , expect = Http.expectString ReadRes 
+        }
+   else
+     Cmd.none
 
 write_conn token data = 
     let 
         body = Http.stringBody "application/json" data 
     in Http.post
-      { url = "http://127.0.0.1:8081/push?token=" ++ token 
+      { url = "http://127.0.0.1:9010/push?token=" ++ token 
       , body = body 
       , expect = Http.expectString WriteRes
       }

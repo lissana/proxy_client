@@ -21,9 +21,9 @@ defmodule Ex.MixProject do
   # Run "mix help deps" to learn about dependencies.
   defp deps do
     [
- {:comsat, git: "https://github.com/vans163/ComSat.git"},
-  {:stargate, git: "https://github.com/vans163/stargate.git"},
-           
+      {:comsat, git: "https://github.com/vans163/ComSat.git"},
+      {:stargate, git: "https://github.com/vans163/stargate.git"}
+
       # {:dep_from_hexpm, "~> 0.3.0"},
       # {:dep_from_git, git: "https://github.com/elixir-lang/my_dep.git", tag: "0.1.0"}
     ]

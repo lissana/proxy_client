@@ -30,6 +30,17 @@ defmodule Ex do
 end
 
 defmodule ProxyApp do
+  def http(verb, path, q, h, body, s) do
+    try do
+      ProxyApp1.http(verb, path, q, h, body, s)
+    catch
+      a, b ->
+        IO.inspect({a, b, __STACKTRACE__})
+    end
+  end
+end
+
+defmodule ProxyApp1 do
   def headers_json(headers) do
     Map.merge(headers, %{"Content-Type" => "application/json"})
   end
@@ -59,6 +70,7 @@ defmodule ProxyApp do
   end
 
   def http(:OPTIONS, _, _q, _h, _body, s) do
+    IO.puts("got cors req")
     {200, headers_cors(%{}), "", s}
   end
 
@@ -76,20 +88,20 @@ defmodule ProxyApp do
 
     {code, headers, body, s} = :stargate_plugin.serve_static_bin(page, h, s)
     headers = Map.put(headers, "Content-Type", "application/javascript")
+    headers = headers_cors(headers)
     {code, headers, body, s}
   end
 
   def http(:GET, "/poll", q, h, _, s) do
-    IO.inspect(q)
     %{"token" => token} = q
     token = String.to_integer(token)
-
+    IO.inspect(token)
     res = :ets.lookup(:workers, token)
 
     # page = JSX.encode! %{result: "ok", token: key} 
     page =
       case res do
-        {_, pid} ->
+        [{_, pid}] ->
           send(pid, {:poll_data, self()})
 
           data =
@@ -107,11 +119,12 @@ defmodule ProxyApp do
 
     {code, headers, body, s} = :stargate_plugin.serve_static_bin(page, h, s)
     headers = Map.put(headers, "Content-Type", "application/javascript")
+    headers = headers_cors(headers)
     {code, headers, body, s}
   end
 
   def http(:POST, "/push", q, h, data, s) do
-    IO.inspect(q)
+    IO.inspect({:push, data})
     %{"token" => token} = q
     token = String.to_integer(token)
 
@@ -120,17 +133,21 @@ defmodule ProxyApp do
     # page = JSX.encode! %{result: "ok", token: key} 
     page =
       case res do
-        {_, pid} ->
-          send(pid, {:push_data, data, self()})
+        [{_, pid}] ->
+          if Process.alive?(pid) do
+            send(pid, {:push_data, data, self()})
 
-          data =
-            receive do
-              :sent_ok ->
-                "ok;0"
-            after
-              5000 ->
-                "error;timeout"
-            end
+            data =
+              receive do
+                :sent_ok ->
+                  "ok;0"
+              after
+                5000 ->
+                  "error;timeout"
+              end
+          else
+            "error;closed"
+          end
 
         _ ->
           "error;closed"
@@ -138,9 +155,9 @@ defmodule ProxyApp do
 
     {code, headers, body, s} = :stargate_plugin.serve_static_bin(page, h, s)
     headers = Map.put(headers, "Content-Type", "application/javascript")
+    headers = headers_cors(headers)
     {code, headers, body, s}
   end
-
 
   def http(verb, path, q, h, _, s) do
     IO.inspect({verb, path, q, h})
@@ -157,7 +174,7 @@ defmodule ConnWorker do
     host = :binary.bin_to_list(args.host)
     {:ok, socket} = :gen_tcp.connect(host, args.port, [:binary, {:active, true}])
     :erlang.send_after(30000, self(), :tick)
-    {:ok, %{buf: "", socket: socket, lastpoll: :os.system_time(1000)}}
+    {:ok, %{closed: false, buf: "", socket: socket, lastpoll: :os.system_time(1000)}}
   end
 
   def handle_info(:tick, state) do
@@ -169,20 +186,29 @@ defmodule ConnWorker do
     end
   end
 
-  def handle_info({:tcp, socket, buff}, state) do
-    IO.puts("got data #{inspect({socket, buff})}")
-    {:noreply, %{state | buff: state.buff <> buff}}
+  def handle_info({:tcp_closed, _socket}, state) do
+    IO.puts("connection closed")
+    {:noreply, %{state | closed: true}}
+  end
+
+  def handle_info({:tcp, socket, buf}, state) do
+    IO.puts("got data #{inspect({socket, buf})}")
+    {:noreply, %{state | buf: state.buf <> buf}}
   end
 
   def handle_info({:push_data, data, from}, state) do
     :gen_tcp.send(state.socket, data)
-    send from, :sent_ok
+    send(from, :sent_ok)
     {:noreply, state}
   end
 
   def handle_info({:poll_data, from}, state) do
-    send(from, {:data, state.buff})
+    send(from, {:data, state.buf})
 
-    {:noreply, %{state | buff: "", lastpoll: :os.system_time()}}
+    if state.closed do
+      {:stop, :closed}
+    else
+      {:noreply, %{state | buf: "", lastpoll: :os.system_time()}}
+    end
   end
 end
