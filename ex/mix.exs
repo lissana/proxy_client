@@ -22,8 +22,9 @@ defmodule Ex.MixProject do
   defp deps do
     [
       {:comsat, git: "https://github.com/vans163/ComSat.git"},
-      {:stargate, git: "https://github.com/vans163/stargate.git"}
-
+      {:stargate, git: "https://github.com/vans163/stargate.git"},
+      {:mitm, git: "https://github.com/xenomorphtech/mitm_ex.git"},
+ 
       # {:dep_from_hexpm, "~> 0.3.0"},
       # {:dep_from_git, git: "https://github.com/elixir-lang/my_dep.git", tag: "0.1.0"}
     ]
