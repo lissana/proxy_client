@@ -211,12 +211,12 @@ defmodule DofusMitmCon do
     if subs do
       send(subs, {:received, side, p})
     end
-    s = if side do
+    side_t = if side do
       "S < "
     else
       "C > "
     end
-    IO.puts s <> Base.encode16(p)
+    IO.puts side_t <> Base.encode16(p)
     {:send, p, s}
   end
 end
