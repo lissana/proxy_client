@@ -209,7 +209,7 @@ defmodule DofusMitmCon do
     subs = :persistent_term.get(:mitm_subscriber, nil)
 
     if subs do
-      send(subs, {:received, side, pkts})
+      send(subs, {:received, side, p})
     end
 
     {:send, p, s}
