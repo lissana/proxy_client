@@ -182,7 +182,7 @@ defmodule DofusMitmCon do
   use GenServer
 
   def init(_) do
-    {:ok, %{}}
+    {:ok, %{bufs: %{}}}
   end
 
   def connect_addr(address, port) do
@@ -206,17 +206,55 @@ defmodule DofusMitmCon do
   end
 
   def proc_packet(side, p, s) do
+    buf = Map.get(s.bufs, side, "")
+    buf = buf <> p
+
+    {buf, s} = unpad_packets(side, buf, s)
+
+    bufs = Map.put(s.bufs, side, buf)
+    s = %{s | bufs: bufs}
+    {:send, p, s}
+  end
+
+  def unpad_packets(side, <<a::14, 0::2, rest::binary>> = buf, s) do
+    s = per_packet(side, {a, ""}, s)
+    unpad_packets(side, rest, s)
+  end
+
+  def unpad_packets(side, <<a::14, 1::2, len::8, data::binary-size(len), rest::binary>> = buf, s) do
+    s = per_packet(side, {a, data}, s)
+    unpad_packets(side, rest, s)
+  end
+
+  def unpad_packets(side, <<a::14, 2::2, len::16, data::binary-size(len), rest::binary>> = buf, s) do
+    s = per_packet(side, {a, data}, s)
+    unpad_packets(side, rest, s)
+  end
+
+  def unpad_packets(side, <<a::14, 3::2, len::32, data::binary-size(len), rest::binary>> = buf, s) do
+    s = per_packet(side, {a, data}, s)
+    unpad_packets(side, rest, s)
+  end
+
+  def unpad_packets(side, buf, s) do
+    {buf, s}
+  end
+
+  def per_packet(side, {op, pkt}, s) do
     subs = :persistent_term.get(:mitm_subscriber, nil)
 
     if subs do
-      send(subs, {:received, side, p})
+      send(subs, {:received, side, {op, pkt}})
     end
-    side_t = if side do
-      "S < "
-    else
-      "C > "
-    end
-    IO.puts side_t <> Base.encode16(p)
-    {:send, p, s}
+
+    side_t =
+      if side do
+        "S < "
+      else
+        "C > "
+      end
+
+    IO.puts(side_t <> "#{op} " <> Base.encode16(pkt))
+    s
   end
 end
